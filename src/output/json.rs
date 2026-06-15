@@ -8,8 +8,6 @@ use crate::tree::Tree;
 
 use super::{format_node, DiffFormatter, FormatInput};
 
-// ----- Serializable output types -----
-
 #[derive(Serialize)]
 struct DiffOutput {
     matches: Vec<MatchEntry>,

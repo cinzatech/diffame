@@ -159,17 +159,15 @@ impl Tree {
         // Post-order ensures children are processed before parents.
         let order = self.post_order(self.root);
         for id in order {
-            let num_children = self.nodes[id].children.len();
+            let children: Vec<NodeId> = self.nodes[id].children.clone();
 
-            // Height and size.
-            if num_children == 0 {
+            if children.is_empty() {
                 self.nodes[id].height = 1;
                 self.nodes[id].size = 1;
             } else {
                 let mut max_height = 0;
                 let mut total_size = 1usize;
-                for index in 0..num_children {
-                    let child_id = self.nodes[id].children[index];
+                for &child_id in &children {
                     if self.nodes[child_id].height > max_height {
                         max_height = self.nodes[child_id].height;
                     }
@@ -183,8 +181,7 @@ impl Tree {
             let mut hasher = DefaultHasher::new();
             self.nodes[id].kind.hash(&mut hasher);
             self.nodes[id].label.hash(&mut hasher);
-            for index in 0..num_children {
-                let child_id = self.nodes[id].children[index];
+            for &child_id in &children {
                 self.nodes[child_id].hash.hash(&mut hasher);
             }
             self.nodes[id].hash = hasher.finish();

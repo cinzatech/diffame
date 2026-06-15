@@ -203,7 +203,11 @@ fn main() -> ExitCode {
 /// bottom rule on the last.  Outside git both values are absent and a single
 /// invocation is both first and last.
 fn file_sequence_position() -> (bool, bool) {
-    let var = |name| env::var(name).ok().and_then(|v| v.parse::<u64>().ok());
+    let var = |name| {
+        env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+    };
     match (var("GIT_DIFF_PATH_COUNTER"), var("GIT_DIFF_PATH_TOTAL")) {
         (Some(counter), Some(total)) => (counter <= 1, counter >= total),
         _ => (true, true),

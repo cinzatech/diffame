@@ -16,7 +16,6 @@ use owo_colors::OwoColorize;
 use unicode_width::UnicodeWidthChar;
 
 use crate::actions::Action;
-use crate::mapping::Mapping;
 use crate::tree::{NodeId, Tree};
 
 use super::line_pairing::{build_line_pairing, split_into_lines, FileLine};
@@ -37,7 +36,7 @@ enum SpanColor {
 fn updated_nodes(actions: &[Action]) -> HashSet<NodeId> {
     actions
         .iter()
-        .filter_map(|a| match a {
+        .filter_map(|action| match action {
             Action::Update { node, .. } => Some(*node),
             _ => None,
         })
@@ -55,16 +54,16 @@ fn classify_leaves(
     unmapped_color: SpanColor,
 ) -> HashMap<NodeId, SpanColor> {
     tree.all_nodes()
-        .filter(|n| n.children.is_empty())
-        .map(|n| {
-            let color = if is_unmapped(n.id) {
+        .filter(|node| node.children.is_empty())
+        .map(|node| {
+            let color = if is_unmapped(node.id) {
                 unmapped_color
-            } else if is_updated(n.id) {
+            } else if is_updated(node.id) {
                 SpanColor::Updated
             } else {
                 SpanColor::Unchanged
             };
-            (n.id, color)
+            (node.id, color)
         })
         .collect()
 }
@@ -86,17 +85,17 @@ fn build_line_spans<'a>(
 ) -> Vec<ColoredSpan<'a>> {
     let mut node_spans: Vec<(usize, usize, SpanColor)> = tree
         .all_nodes()
-        .filter(|n| n.children.is_empty())
-        .filter(|n| n.end_byte > line.start_byte && n.start_byte < line.end_byte)
-        .filter_map(|n| leaf_colors.get(&n.id).map(|&c| (n, c)))
-        .map(|(n, color)| {
-            let start = n.start_byte.saturating_sub(line.start_byte);
-            let end = (n.end_byte - line.start_byte).min(line.text.len());
+        .filter(|node| node.children.is_empty())
+        .filter(|node| node.end_byte > line.start_byte && node.start_byte < line.end_byte)
+        .filter_map(|node| leaf_colors.get(&node.id).map(|&color| (node, color)))
+        .map(|(node, color)| {
+            let start = node.start_byte.saturating_sub(line.start_byte);
+            let end = (node.end_byte - line.start_byte).min(line.text.len());
             (start.min(end), end, color)
         })
         .collect();
 
-    node_spans.sort_by_key(|s| s.0);
+    node_spans.sort_by_key(|span| span.0);
 
     let mut spans: Vec<ColoredSpan> = Vec::new();
     let mut position = 0;
@@ -179,8 +178,10 @@ fn build_output_rows<'a>(
     moved_destination_lines: &HashSet<usize>,
     context: &DiffContext,
 ) -> Vec<OutputRow<'a>> {
-    let reverse_mapping: HashMap<usize, usize> =
-        line_mapping.iter().map(|(&d, &s)| (s, d)).collect();
+    let reverse_mapping: HashMap<usize, usize> = line_mapping
+        .iter()
+        .map(|(&destination, &source)| (source, destination))
+        .collect();
 
     let mut rows: Vec<OutputRow> = Vec::new();
     let mut emitted_source_lines: HashSet<usize> = HashSet::new();
@@ -195,7 +196,7 @@ fn build_output_rows<'a>(
             continue;
         };
 
-        let gap_start = last_source_line.map_or(0, |l| l + 1);
+        let gap_start = last_source_line.map_or(0, |last| last + 1);
         if source_index >= gap_start {
             for (gap, gap_line) in source_lines
                 .iter()
@@ -271,10 +272,10 @@ fn extract_hunks(rows: &[OutputRow], context: usize) -> Vec<(usize, usize)> {
     let displayed = rows
         .iter()
         .enumerate()
-        .filter(|(_, r)| r.is_changed || r.is_moved);
-    for (i, _) in displayed {
-        let start = i.saturating_sub(context);
-        let end = (i + context + 1).min(rows.len());
+        .filter(|(_, row)| row.is_changed || row.is_moved);
+    for (index, _) in displayed {
+        let start = index.saturating_sub(context);
+        let end = (index + context + 1).min(rows.len());
         if let Some(last) = ranges.last_mut() {
             if start <= last.1 {
                 last.1 = end;
@@ -311,7 +312,7 @@ fn absent_fill(width: usize) -> String {
 /// 1 column) and CJK characters (3–4 bytes, 2 columns) are measured correctly.
 fn wrap_spans<'a, C: Copy>(spans: &[Span<'a, C>], width: usize) -> Vec<(Vec<Span<'a, C>>, usize)> {
     if width == 0 {
-        let total: usize = spans.iter().map(|s| display_width(s.text)).sum();
+        let total: usize = spans.iter().map(|span| display_width(span.text)).sum();
         return vec![(spans.to_vec(), total)];
     }
     let mut lines: Vec<(Vec<Span<C>>, usize)> = Vec::new();
@@ -364,11 +365,11 @@ fn bytes_fitting_columns(text: &str, max_cols: usize) -> (usize, usize) {
     let mut cols = 0;
     let mut bytes = 0;
     for ch in text.chars() {
-        let w = ch.width().unwrap_or(0);
-        if cols + w > max_cols {
+        let char_width = ch.width().unwrap_or(0);
+        if cols + char_width > max_cols {
             break;
         }
-        cols += w;
+        cols += char_width;
         bytes += ch.len_utf8();
     }
     (bytes, cols)
@@ -384,8 +385,8 @@ fn display_width(text: &str) -> usize {
 /// lines or when the side has no line.
 fn number_cell(number: Option<usize>, visual_index: usize, is_moved: bool, width: usize) -> String {
     match number {
-        Some(n) if visual_index == 0 => {
-            let cell = format!("{n:>width$}");
+        Some(num) if visual_index == 0 => {
+            let cell = format!("{num:>width$}");
             if is_moved {
                 cell.yellow().to_string()
             } else {
@@ -408,20 +409,23 @@ fn render_row(
     let num_visual = left_visual_lines.len().max(right_visual_lines.len()).max(1);
     let separator = "│".dimmed();
 
-    for v in 0..num_visual {
-        let colored_left_number =
-            number_cell(row.source_line_number, v, row.is_moved, line_number_width);
+    for visual_index in 0..num_visual {
+        let colored_left_number = number_cell(
+            row.source_line_number,
+            visual_index,
+            row.is_moved,
+            line_number_width,
+        );
         let colored_right_number = number_cell(
             row.destination_line_number,
-            v,
+            visual_index,
             row.is_moved,
             line_number_width,
         );
 
-        // Left content.
         let left_padded = if row.source_line_number.is_none() {
             absent_fill(content_width)
-        } else if let Some((ref spans, vis_len)) = left_visual_lines.get(v) {
+        } else if let Some((ref spans, vis_len)) = left_visual_lines.get(visual_index) {
             let rendered = render_spans(spans);
             let padding = content_width.saturating_sub(*vis_len);
             format!("{}{}", rendered, " ".repeat(padding))
@@ -429,10 +433,9 @@ fn render_row(
             " ".repeat(content_width)
         };
 
-        // Right content.
         let right_content = if row.destination_line_number.is_none() {
             absent_fill(content_width)
-        } else if let Some((ref spans, _)) = right_visual_lines.get(v) {
+        } else if let Some((ref spans, _)) = right_visual_lines.get(visual_index) {
             render_spans(spans)
         } else {
             String::new()
@@ -468,20 +471,7 @@ pub struct TerminalFormatter;
 
 impl DiffFormatter for TerminalFormatter {
     fn format(input: &FormatInput) -> String {
-        format_side_by_side(&SideBySideInput {
-            source_bytes: input.source_bytes,
-            destination_bytes: input.destination_bytes,
-            source_tree: &input.result.src_tree,
-            destination_tree: &input.result.dst_tree,
-            mapping: &input.result.mapping,
-            actions: &input.result.actions,
-            source_filename: input.source_filename,
-            destination_filename: input.destination_filename,
-            language_name: input.language_name,
-            terminal_width: input.terminal_width,
-            first_file: input.first_file,
-            last_file: input.last_file,
-        })
+        format_side_by_side(input)
     }
 }
 
@@ -543,7 +533,7 @@ fn render_header_spans(spans: &[Span<HeaderStyle>]) -> String {
 /// both).  When both sides name the same file (typical in git diffs), the
 /// filename is shown only on the left; the right side shows just its ref.
 fn render_file_header(
-    input: &SideBySideInput,
+    input: &FormatInput,
     line_number_width: usize,
     content_width: usize,
     output: &mut String,
@@ -566,8 +556,8 @@ fn render_file_header(
     let left_lines = wrap_spans(&left_spans, content_width);
     let right_lines = wrap_spans(&right_spans, content_width);
     let num_visual = left_lines.len().max(right_lines.len());
-    for v in 0..num_visual {
-        let left = left_lines.get(v).map_or_else(
+    for visual_index in 0..num_visual {
+        let left = left_lines.get(visual_index).map_or_else(
             || " ".repeat(content_width),
             |(spans, vis_len)| {
                 let padding = content_width.saturating_sub(*vis_len);
@@ -575,7 +565,7 @@ fn render_file_header(
             },
         );
         let right = right_lines
-            .get(v)
+            .get(visual_index)
             .map_or_else(String::new, |(spans, _)| render_header_spans(spans));
         writeln!(
             output,
@@ -585,41 +575,15 @@ fn render_file_header(
     }
 }
 
-/// All inputs needed to produce a side-by-side diff.
-pub struct SideBySideInput<'a> {
-    pub source_bytes: &'a [u8],
-    pub destination_bytes: &'a [u8],
-    pub source_tree: &'a Tree,
-    pub destination_tree: &'a Tree,
-    pub mapping: &'a Mapping,
-    pub actions: &'a [Action],
-    pub source_filename: Option<&'a str>,
-    pub destination_filename: Option<&'a str>,
-    pub language_name: Option<&'a str>,
-    /// Width of the output terminal in columns, or `None` when stdout is not
-    /// a terminal.  Querying the environment is left to the caller so this
-    /// formatter stays a pure function.
-    pub terminal_width: Option<usize>,
-    /// Whether this diff is the first of a sequence whose outputs are
-    /// concatenated (e.g. one git invocation per changed path).  The first
-    /// file opens the table with a flat `┬` top rule; later files use a `┼`
-    /// rule that connects to the rows of the previous file above.
-    pub first_file: bool,
-    /// Whether this diff is the last of such a sequence.  Only the last file
-    /// closes the table with a `┴` bottom rule; earlier files stay open so
-    /// the next file's connecting rule continues the columns.
-    pub last_file: bool,
-}
+/// Re-export for backward compatibility.
+pub type SideBySideInput<'a> = FormatInput<'a>;
 
 #[must_use]
-pub fn format_side_by_side(input: &SideBySideInput) -> String {
-    let SideBySideInput {
-        source_tree,
-        destination_tree,
-        mapping,
-        actions,
-        ..
-    } = *input;
+pub fn format_side_by_side(input: &FormatInput) -> String {
+    let source_tree = &input.result.src_tree;
+    let destination_tree = &input.result.dst_tree;
+    let mapping = &input.result.mapping;
+    let actions = &input.result.actions;
 
     let source_text = String::from_utf8_lossy(input.source_bytes);
     let destination_text = String::from_utf8_lossy(input.destination_bytes);
@@ -647,7 +611,7 @@ pub fn format_side_by_side(input: &SideBySideInput) -> String {
         |id| {
             mapping
                 .get_src(id)
-                .is_some_and(|src| updated.contains(&src))
+                .is_some_and(|source_id| updated.contains(&source_id))
         },
         SpanColor::Inserted,
     );
@@ -676,10 +640,10 @@ pub fn format_side_by_side(input: &SideBySideInput) -> String {
         let default = 50;
         input
             .terminal_width
-            .map(|w| {
+            .map(|terminal_width| {
                 let chrome = 2 * line_number_width + 9;
-                if w > chrome + 2 {
-                    (w - chrome) / 2
+                if terminal_width > chrome + 2 {
+                    (terminal_width - chrome) / 2
                 } else {
                     default
                 }

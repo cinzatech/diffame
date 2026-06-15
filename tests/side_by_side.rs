@@ -8,7 +8,8 @@ use std::collections::HashSet;
 
 use diffame::languages;
 use diffame::output::strip_ansi;
-use diffame::side_by_side::{format_side_by_side, SideBySideInput};
+use diffame::output::FormatInput;
+use diffame::side_by_side::format_side_by_side;
 use diffame::{diff_sources, DiffOptions};
 
 /// Helper: diff two Python snippets and return the side-by-side output with
@@ -38,13 +39,10 @@ fn side_by_side_lang_colored(old: &str, new: &str, ext: &str) -> String {
         &DiffOptions::default(),
     )
     .expect("diff failed");
-    format_side_by_side(&SideBySideInput {
+    format_side_by_side(&FormatInput {
         source_bytes: old.as_bytes(),
         destination_bytes: new.as_bytes(),
-        source_tree: &result.src_tree,
-        destination_tree: &result.dst_tree,
-        mapping: &result.mapping,
-        actions: &result.actions,
+        result: &result,
         source_filename: None,
         destination_filename: None,
         language_name: None,
@@ -771,13 +769,10 @@ fn side_by_side_with_header(old: &str, new: &str) -> String {
         &DiffOptions::default(),
     )
     .expect("diff failed");
-    format_side_by_side(&SideBySideInput {
+    format_side_by_side(&FormatInput {
         source_bytes: old.as_bytes(),
         destination_bytes: new.as_bytes(),
-        source_tree: &result.src_tree,
-        destination_tree: &result.dst_tree,
-        mapping: &result.mapping,
-        actions: &result.actions,
+        result: &result,
         source_filename: Some("a.py"),
         destination_filename: Some("b.py"),
         language_name: languages::language_name_for_ext("py"),
@@ -844,13 +839,10 @@ fn same_filename_is_not_repeated_on_right() {
     let profile = languages::profile_for_ext("py").expect("python profile");
     let result = diff_sources(b"x = 1\n", b"x = 2\n", profile, &DiffOptions::default())
         .expect("diff failed");
-    let output = format_side_by_side(&SideBySideInput {
+    let output = format_side_by_side(&FormatInput {
         source_bytes: b"x = 1\n",
         destination_bytes: b"x = 2\n",
-        source_tree: &result.src_tree,
-        destination_tree: &result.dst_tree,
-        mapping: &result.mapping,
-        actions: &result.actions,
+        result: &result,
         source_filename: Some("app.py"),
         destination_filename: Some("app.py"),
         language_name: Some("Python"),
@@ -913,13 +905,10 @@ fn middle_file_connects_to_neighbours() {
     let profile = languages::profile_for_ext("py").expect("python profile");
     let result = diff_sources(b"x = 1\n", b"x = 2\n", profile, &DiffOptions::default())
         .expect("diff failed");
-    let output = format_side_by_side(&SideBySideInput {
+    let output = format_side_by_side(&FormatInput {
         source_bytes: b"x = 1\n",
         destination_bytes: b"x = 2\n",
-        source_tree: &result.src_tree,
-        destination_tree: &result.dst_tree,
-        mapping: &result.mapping,
-        actions: &result.actions,
+        result: &result,
         source_filename: Some("a.py"),
         destination_filename: Some("b.py"),
         language_name: Some("Python"),
@@ -948,13 +937,10 @@ fn long_filename_wraps_without_breaking_layout() {
     let profile = languages::profile_for_ext("py").expect("python profile");
     let result = diff_sources(b"x = 1\n", b"x = 2\n", profile, &DiffOptions::default())
         .expect("diff failed");
-    let output = format_side_by_side(&SideBySideInput {
+    let output = format_side_by_side(&FormatInput {
         source_bytes: b"x = 1\n",
         destination_bytes: b"x = 2\n",
-        source_tree: &result.src_tree,
-        destination_tree: &result.dst_tree,
-        mapping: &result.mapping,
-        actions: &result.actions,
+        result: &result,
         source_filename: Some(&long_name),
         destination_filename: Some("b.py"),
         language_name: Some("Python"),

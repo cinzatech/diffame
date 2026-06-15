@@ -23,6 +23,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::lis::longest_increasing_subsequence;
 use crate::mapping::Mapping;
 use crate::tree::Tree;
 
@@ -60,7 +61,7 @@ pub fn split_into_lines(text: &str) -> Vec<FileLine<'_>> {
         });
         offset = end + 1;
     }
-    if lines.last().is_some_and(|l| l.text.is_empty()) {
+    if lines.last().is_some_and(|last| last.text.is_empty()) {
         lines.pop();
     }
     lines
@@ -168,31 +169,45 @@ fn phase2_align(
         used_source_lines.insert(source_line);
     }
 
-    let dst_count = destination_lines.len();
-    let src_count = source_lines.len();
+    let destination_count = destination_lines.len();
+    let source_count = source_lines.len();
 
     // Collect anchors sorted by destination index to define gap boundaries.
-    let mut anchors: Vec<(usize, usize)> = result.iter().map(|(&d, &s)| (d, s)).collect();
-    anchors.sort_by_key(|&(d, _)| d);
+    let mut anchors: Vec<(usize, usize)> = result
+        .iter()
+        .map(|(&destination, &source)| (destination, source))
+        .collect();
+    anchors.sort_by_key(|&(destination, _)| destination);
 
     let mut gaps: Vec<(usize, usize, usize, usize)> = Vec::new();
     if anchors.is_empty() {
-        gaps.push((0, dst_count, 0, src_count));
+        gaps.push((0, destination_count, 0, source_count));
     } else {
-        let (fd, fs) = anchors[0];
-        if fd > 0 || fs > 0 {
-            gaps.push((0, fd, 0, fs));
+        let (first_destination, first_source) = anchors[0];
+        if first_destination > 0 || first_source > 0 {
+            gaps.push((0, first_destination, 0, first_source));
         }
-        for w in anchors.windows(2) {
-            let (d1, s1) = w[0];
-            let (d2, s2) = w[1];
-            if s1 < s2 {
-                gaps.push((d1 + 1, d2, s1 + 1, s2));
+        for window in anchors.windows(2) {
+            let (prev_destination, prev_source) = window[0];
+            let (next_destination, next_source) = window[1];
+            // Crossed anchors (a moved block) cannot form a meaningful gap.
+            if prev_source < next_source {
+                gaps.push((
+                    prev_destination + 1,
+                    next_destination,
+                    prev_source + 1,
+                    next_source,
+                ));
             }
         }
-        let (ld, ls) = *anchors.last().unwrap();
-        if ld + 1 < dst_count || ls + 1 < src_count {
-            gaps.push((ld + 1, dst_count, ls + 1, src_count));
+        let (last_destination, last_source) = *anchors.last().unwrap();
+        if last_destination + 1 < destination_count || last_source + 1 < source_count {
+            gaps.push((
+                last_destination + 1,
+                destination_count,
+                last_source + 1,
+                source_count,
+            ));
         }
     }
 
@@ -201,79 +216,94 @@ fn phase2_align(
     // punctuation lines, which carry no tokens the mapping could see.
     for &(dst_from, dst_to, src_from, src_to) in &gaps {
         let available: Vec<usize> = (src_from..src_to)
-            .filter(|s| !used_source_lines.contains(s))
+            .filter(|source| !used_source_lines.contains(source))
             .collect();
         let unmatched: Vec<usize> = (dst_from..dst_to)
-            .filter(|d| !result.contains_key(d))
+            .filter(|destination| !result.contains_key(destination))
             .collect();
-        let identical =
-            |d: usize, s: usize| destination_lines[d].text.trim() == source_lines[s].text.trim();
-        for (d, s) in lcs_matches(&unmatched, &available, &identical) {
-            result.insert(d, s);
-            used_source_lines.insert(s);
+        let text_matches = |destination: usize, source: usize| {
+            destination_lines[destination].text.trim() == source_lines[source].text.trim()
+        };
+        for (destination, source) in lcs_matches(&unmatched, &available, &text_matches) {
+            result.insert(destination, source);
+            used_source_lines.insert(source);
         }
     }
 
     result
 }
 
-/// Longest common subsequence of `dst` and `src` (slices of line indices)
-/// under `equal`, returned as `(dst, src)` pairs in increasing order.
+/// Longest common subsequence of `destination_indices` and `source_indices`
+/// (slices of line indices) under `equal`, returned as `(destination, source)`
+/// pairs in increasing order.
 ///
 /// Falls back to greedy first-available matching when the DP table would be
 /// unreasonably large (only possible when a diff has almost no anchors).
 fn lcs_matches(
-    dst: &[usize],
-    src: &[usize],
+    destination_indices: &[usize],
+    source_indices: &[usize],
     equal: &impl Fn(usize, usize) -> bool,
 ) -> Vec<(usize, usize)> {
     const MAX_CELLS: usize = 1_000_000;
-    if dst.is_empty() || src.is_empty() {
+    if destination_indices.is_empty() || source_indices.is_empty() {
         return Vec::new();
     }
-    if dst.len().saturating_mul(src.len()) > MAX_CELLS {
-        let mut available: Vec<usize> = src.to_vec();
+    if destination_indices
+        .len()
+        .saturating_mul(source_indices.len())
+        > MAX_CELLS
+    {
+        let mut available: Vec<usize> = source_indices.to_vec();
         let mut pairs = Vec::new();
-        for &d in dst {
-            if let Some(position) = available.iter().position(|&s| equal(d, s)) {
-                pairs.push((d, available.remove(position)));
+        for &destination in destination_indices {
+            if let Some(position) = available
+                .iter()
+                .position(|&source| equal(destination, source))
+            {
+                pairs.push((destination, available.remove(position)));
             }
         }
         return pairs;
     }
 
-    let rows = dst.len();
-    let columns = src.len();
-    let index = |i: usize, j: usize| i * (columns + 1) + j;
+    let rows = destination_indices.len();
+    let columns = source_indices.len();
+    let cell_index = |row: usize, column: usize| row * (columns + 1) + column;
     let mut table = vec![0u32; (rows + 1) * (columns + 1)];
-    for i in (0..rows).rev() {
-        for j in (0..columns).rev() {
-            table[index(i, j)] = if equal(dst[i], src[j]) {
-                table[index(i + 1, j + 1)] + 1
-            } else {
-                table[index(i + 1, j)].max(table[index(i, j + 1)])
-            };
+    for row in (0..rows).rev() {
+        for column in (0..columns).rev() {
+            table[cell_index(row, column)] =
+                if equal(destination_indices[row], source_indices[column]) {
+                    table[cell_index(row + 1, column + 1)] + 1
+                } else {
+                    table[cell_index(row + 1, column)].max(table[cell_index(row, column + 1)])
+                };
         }
     }
 
     let mut pairs = Vec::new();
-    let (mut i, mut j) = (0, 0);
-    while i < rows && j < columns {
-        if equal(dst[i], src[j]) && table[index(i, j)] == table[index(i + 1, j + 1)] + 1 {
-            pairs.push((dst[i], src[j]));
-            i += 1;
-            j += 1;
-        } else if table[index(i + 1, j)] >= table[index(i, j + 1)] {
-            i += 1;
+    let (mut row, mut column) = (0, 0);
+    while row < rows && column < columns {
+        if equal(destination_indices[row], source_indices[column])
+            && table[cell_index(row, column)] == table[cell_index(row + 1, column + 1)] + 1
+        {
+            pairs.push((destination_indices[row], source_indices[column]));
+            row += 1;
+            column += 1;
+        } else if table[cell_index(row + 1, column)] >= table[cell_index(row, column + 1)] {
+            row += 1;
         } else {
-            j += 1;
+            column += 1;
         }
     }
     pairs
 }
 
-/// Detects which destination lines belong to moved blocks by finding inversions
-/// in the source-line sequence.
+/// Detects which destination lines belong to moved blocks by finding the
+/// minimal set of blocks that are out of order.
+///
+/// Uses the longest increasing subsequence (LIS) of source-line
+/// representatives: blocks NOT in the LIS are the ones that moved.
 fn detect_moved_destination_lines(
     line_mapping: &HashMap<usize, usize>,
     destination_line_count: usize,
@@ -298,23 +328,17 @@ fn detect_moved_destination_lines(
         return HashSet::new();
     }
 
-    let source_representatives: Vec<usize> = blocks.iter().map(|(_, src)| *src).collect();
-    let mut moved_block_indices: HashSet<usize> = HashSet::new();
-
-    for i in 0..source_representatives.len() {
-        for j in (i + 1)..source_representatives.len() {
-            if source_representatives[i] <= source_representatives[j] {
-                continue;
-            }
-            moved_block_indices.insert(i);
-            moved_block_indices.insert(j);
-        }
-    }
+    let source_representatives: Vec<usize> = blocks.iter().map(|(_, source)| *source).collect();
+    let in_order_indices: HashSet<usize> = longest_increasing_subsequence(&source_representatives)
+        .into_iter()
+        .collect();
 
     let mut moved_lines: HashSet<usize> = HashSet::new();
-    for block_index in moved_block_indices {
-        for &destination_line in &blocks[block_index].0 {
-            moved_lines.insert(destination_line);
+    for (block_index, (destination_lines, _)) in blocks.iter().enumerate() {
+        if !in_order_indices.contains(&block_index) {
+            for &destination_line in destination_lines {
+                moved_lines.insert(destination_line);
+            }
         }
     }
     moved_lines

@@ -25,6 +25,7 @@ pub mod format {
 /// Backward-compatible re-export of the old `side_by_side` module surface.
 pub mod side_by_side {
     pub use crate::output::terminal::{format_side_by_side, SideBySideInput};
+    pub use crate::output::FormatInput;
 }
 
 use crate::actions::{generate_actions, Action};
@@ -138,7 +139,13 @@ fn parse_with_timeout(
     };
     let mut opts = tree_sitter::ParseOptions::new().progress_callback(&mut callback);
     parser.parse_with_options(
-        &mut |i, _| if i < len { &source[i..] } else { &[] },
+        &mut |byte_offset, _| {
+            if byte_offset < len {
+                &source[byte_offset..]
+            } else {
+                &[]
+            }
+        },
         None,
         Some(opts.reborrow()),
     )

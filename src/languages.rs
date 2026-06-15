@@ -22,7 +22,6 @@ macro_rules! simple_profile {
     };
 }
 
-// --- Official tree-sitter grammars ---
 simple_profile!(AgdaProfile, tree_sitter_agda::LANGUAGE);
 simple_profile!(BashProfile, tree_sitter_bash::LANGUAGE);
 simple_profile!(CProfile, tree_sitter_c::LANGUAGE);
@@ -60,7 +59,6 @@ simple_profile!(TsxProfile, tree_sitter_typescript::LANGUAGE_TSX);
 simple_profile!(VerilogProfile, tree_sitter_verilog::LANGUAGE);
 simple_profile!(YamlProfile, tree_sitter_yaml::LANGUAGE);
 
-// --- Community grammars ---
 simple_profile!(CmakeProfile, tree_sitter_cmake::LANGUAGE);
 simple_profile!(
     CommonLispProfile,
@@ -101,9 +99,6 @@ simple_profile!(XmlProfile, tree_sitter_xml::LANGUAGE_XML);
 simple_profile!(DtdProfile, tree_sitter_xml::LANGUAGE_DTD);
 simple_profile!(ZigProfile, tree_sitter_zig::LANGUAGE);
 
-// ---------------------------------------------------------------------------
-// Single-source-of-truth registry.
-//
 // `define_languages!` generates both `profile_for_ext` and
 // `supported_extensions` from this one table.  Adding a language is a
 // single-line change.
@@ -115,7 +110,6 @@ simple_profile!(ZigProfile, tree_sitter_zig::LANGUAGE);
 //     and many others.  Use `-l nginx` explicitly.
 //   - `.m` is intentionally omitted: it is MATLAB in scientific codebases and
 //     Objective-C elsewhere.  Use `-l objc` explicitly.
-// ---------------------------------------------------------------------------
 
 macro_rules! define_languages {
     ( $( $static_name:ident : $profile_ty:ident, $display:literal => [ $( $ext:literal ),+ ] ; )* ) => {
