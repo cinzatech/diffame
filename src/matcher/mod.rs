@@ -5,6 +5,7 @@
 //! hyperparameters.
 
 pub mod bottomup;
+pub(crate) mod comparators;
 pub mod line_diff;
 pub mod topdown;
 

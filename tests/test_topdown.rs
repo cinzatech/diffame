@@ -188,3 +188,68 @@ fn dice_coefficient_one_when_all_descendants_mapped() {
     );
     assert!((dice - 1.0).abs() < 1e-9);
 }
+
+#[test]
+fn ambiguous_subtrees_resolved_by_position() {
+    // Two identical (attr (inner (leaf "x"))) subtrees, each under a different
+    // container.  Each container also has a unique child, so containers are
+    // uniquely anchored.  The comparator chain should use the sibling-dice
+    // (level 1) to match each attr to the copy under its mapped parent.
+    //
+    //   source: root -> [cA(uniq_a, attr), cB(uniq_b, attr)]
+    //   dest:   root -> [cA(uniq_a, attr), cB(uniq_b, attr)]
+
+    let mut src_b = TreeBuilder::new();
+    let src_root = src_b.add("root", "", None, 0, 100);
+
+    let src_ca = src_b.add("container_a", "", Some(src_root), 0, 40);
+    let src_attr0 = src_b.add("attr", "", Some(src_ca), 10, 30);
+    let src_attr0_i = src_b.add("inner", "", Some(src_attr0), 10, 25);
+    let _ = src_b.add("leaf", "x", Some(src_attr0_i), 10, 15);
+
+    let src_cb = src_b.add("container_b", "", Some(src_root), 40, 80);
+    let src_attr1 = src_b.add("attr", "", Some(src_cb), 50, 70);
+    let src_attr1_i = src_b.add("inner", "", Some(src_attr1), 50, 65);
+    let _ = src_b.add("leaf", "x", Some(src_attr1_i), 50, 55);
+
+    let source_tree = src_b.build(src_root);
+
+    let mut dst_b = TreeBuilder::new();
+    let dst_root = dst_b.add("root", "", None, 0, 100);
+
+    let dst_ca = dst_b.add("container", "", Some(dst_root), 0, 40);
+    let dst_ua = dst_b.add("uniq_a", "", Some(dst_ca), 0, 10);
+    let _ = dst_b.add("leaf", "aaa", Some(dst_ua), 0, 5);
+    let dst_attr0 = dst_b.add("attr", "", Some(dst_ca), 10, 30);
+    let dst_attr0_i = dst_b.add("inner", "", Some(dst_attr0), 10, 25);
+    let _ = dst_b.add("leaf", "x", Some(dst_attr0_i), 10, 15);
+
+    let dst_cb = dst_b.add("container", "", Some(dst_root), 40, 80);
+    let dst_ub = dst_b.add("uniq_b", "", Some(dst_cb), 40, 50);
+    let _ = dst_b.add("leaf", "bbb", Some(dst_ub), 40, 45);
+    let dst_attr1 = dst_b.add("attr", "", Some(dst_cb), 50, 70);
+    let dst_attr1_i = dst_b.add("inner", "", Some(dst_attr1), 50, 65);
+    let _ = dst_b.add("leaf", "x", Some(dst_attr1_i), 50, 55);
+
+    let destination_tree = dst_b.build(dst_root);
+
+    let mut mapping = Mapping::new();
+    match_top_down(
+        &source_tree,
+        &destination_tree,
+        &mut mapping,
+        DEFAULT_MIN_HEIGHT,
+    );
+
+    // Each attr must match the copy under its own mapped parent.
+    assert_eq!(
+        mapping.get_dst(src_attr0),
+        Some(dst_attr0),
+        "attr under container_A must match dst attr under container_A"
+    );
+    assert_eq!(
+        mapping.get_dst(src_attr1),
+        Some(dst_attr1),
+        "attr under container_B must match dst attr under container_B"
+    );
+}

@@ -254,3 +254,118 @@ fn sorted_pairs(map: &HashMap<usize, usize>) -> Vec<(usize, usize)> {
     pairs.sort_unstable();
     pairs
 }
+
+/// When many `#[test]` functions exist and new ones are inserted among them,
+/// the unchanged functions must not be flagged as moved.  The ambiguous
+/// `#[test]` attribute_item nodes (all structurally identical) must be
+/// resolved by the comparator chain using mapped-sibling context, not
+/// arbitrary tie-breaking.
+#[test]
+fn inserting_tests_among_existing_does_not_cascade_moved_flags() {
+    let old = "\
+use std::collections::HashSet;
+
+#[test]
+fn alpha() {
+    let x = HashSet::new();
+    assert!(x.is_empty());
+}
+
+#[test]
+fn beta() {
+    let y = vec![1, 2, 3];
+    assert_eq!(y.len(), 3);
+}
+
+#[test]
+fn gamma() {
+    let z = String::from(\"hello\");
+    assert_eq!(z.len(), 5);
+}
+
+#[test]
+fn delta() {
+    let w = Some(42);
+    assert_eq!(w.unwrap(), 42);
+}
+
+#[test]
+fn epsilon() {
+    let v: Vec<i32> = (0..10).collect();
+    assert_eq!(v.len(), 10);
+}
+";
+    let new = "\
+use std::collections::HashSet;
+
+#[test]
+fn alpha() {
+    let x = HashSet::new();
+    assert!(x.is_empty());
+}
+
+#[test]
+fn alpha_two() {
+    let a = HashSet::from([1, 2]);
+    assert_eq!(a.len(), 2);
+}
+
+#[test]
+fn beta() {
+    let y = vec![1, 2, 3];
+    assert_eq!(y.len(), 3);
+}
+
+#[test]
+fn beta_two() {
+    let b = vec![4, 5];
+    assert_eq!(b.len(), 2);
+}
+
+#[test]
+fn gamma() {
+    let z = String::from(\"hello\");
+    assert_eq!(z.len(), 5);
+}
+
+#[test]
+fn delta() {
+    let w = Some(42);
+    assert_eq!(w.unwrap(), 42);
+}
+
+#[test]
+fn epsilon() {
+    let v: Vec<i32> = (0..10).collect();
+    assert_eq!(v.len(), 10);
+}
+";
+    let pairing = pairing_for(old, new);
+
+    let unchanged_fns = [
+        "fn beta() {",
+        "fn gamma() {",
+        "fn delta() {",
+        "fn epsilon() {",
+    ];
+
+    let new_lines = split_into_lines(new);
+    let mut checked = 0;
+    for (dst_idx, line) in new_lines.iter().enumerate() {
+        let text = line.text.trim();
+        if unchanged_fns.contains(&text) {
+            assert!(
+                !pairing.moved_dst_lines.contains(&dst_idx),
+                "line {} ({:?}) should not be flagged as moved",
+                dst_idx + 1,
+                text,
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(
+        checked,
+        unchanged_fns.len(),
+        "all unchanged fns must be found"
+    );
+}

@@ -72,33 +72,13 @@ pub fn match_top_down(
         }
     }
 
-    // Resolve ambiguous candidates by parent-context dice, descending.
-    let mut scored: Vec<(f64, NodeId, NodeId)> = ambiguous
-        .into_iter()
-        .map(|(source_node, destination_node)| {
-            let score = parent_dice(
-                source_tree,
-                destination_tree,
-                source_node,
-                destination_node,
-                mapping,
-            );
-            (score, source_node, destination_node)
-        })
-        .collect();
-    scored.sort_by(|left, right| right.0.total_cmp(&left.0));
-
-    for (_, source_node, destination_node) in scored {
-        if !mapping.has_src(source_node) && !mapping.has_dst(destination_node) {
-            map_isomorphic_subtree(
-                source_tree,
-                source_node,
-                destination_tree,
-                destination_node,
-                mapping,
-            );
-        }
-    }
+    super::comparators::resolve_ambiguous(
+        ambiguous,
+        source_tree,
+        destination_tree,
+        mapping,
+        |src, dst, m| map_isomorphic_subtree(source_tree, src, destination_tree, dst, m),
+    );
 }
 
 /// Attempts to match isomorphic nodes at the same height level.
@@ -195,27 +175,6 @@ fn map_isomorphic_subtree(
         {
             stack.push((*source_child, *destination_child));
         }
-    }
-}
-
-fn parent_dice(
-    source_tree: &Tree,
-    destination_tree: &Tree,
-    source_node: NodeId,
-    destination_node: NodeId,
-    mapping: &Mapping,
-) -> f64 {
-    let source_parent = source_tree.node(source_node).parent;
-    let destination_parent = destination_tree.node(destination_node).parent;
-    match (source_parent, destination_parent) {
-        (Some(source_parent_id), Some(destination_parent_id)) => dice_coefficient(
-            source_tree,
-            source_parent_id,
-            destination_tree,
-            destination_parent_id,
-            mapping,
-        ),
-        _ => 0.0,
     }
 }
 
