@@ -97,11 +97,17 @@ pub fn match_trees(source_tree: &Tree, destination_tree: &Tree, options: MatchOp
         && source_tree.node(source_root).kind == destination_tree.node(destination_root).kind
     {
         mapping.link(source_root, destination_root);
+    }
+
+    // Always run recovery on the root pair.  The bottom-up phase skips
+    // recovery for large subtrees (size >= max_size), so when it matches
+    // the roots their children still need the cheap recovery pass.
+    if let Some(mapped_root) = mapping.get_dst(source_root) {
         bottomup::recover_simple(
             source_tree,
             source_root,
             destination_tree,
-            destination_root,
+            mapped_root,
             &mut mapping,
         );
     }

@@ -1021,3 +1021,46 @@ def first():
          Output:\n{output}",
     );
 }
+
+/// When lines differ only in variable names (a rename refactor), they must
+/// be paired side-by-side with the changed identifiers highlighted, not
+/// shown as separate deletions and insertions.
+///
+/// The fixture files are real before/after snapshots of a variable-rename
+/// refactor across a ~320-line Rust file. With this many simultaneous
+/// renames the AST matcher cannot anchor every identifier, so lines that
+/// differ only in variable names end up unanchored. The line pairing must
+/// still pair them by text similarity rather than leaving them as
+/// unpaired deletions and insertions.
+#[test]
+fn renamed_variables_produce_paired_lines_not_delete_insert() {
+    let old = include_str!("fixtures/line_pairing_before.rs");
+    let new = include_str!("fixtures/line_pairing_after.rs");
+
+    let output = side_by_side_lang_colored(old, new, "rs");
+    let plain = strip_ansi(&output);
+    let rows = parse_rows(&plain);
+
+    // Old line: `gaps.push((0, dst_count, 0, src_count));`
+    // New line: `gaps.push((0, destination_count, 0, source_count));`
+    // Only the variable names changed. It must be PAIRED.
+    let push_rows: Vec<_> = rows
+        .iter()
+        .filter(|(_, left, _, right)| left.contains("gaps.push") || right.contains("gaps.push"))
+        .collect();
+
+    // The first gaps.push (the one inside `if anchors.is_empty()`) is the
+    // clearest case: identical structure, only variable names differ.
+    let first_push = push_rows
+        .first()
+        .unwrap_or_else(|| panic!("no row contains 'gaps.push'.\nOutput:\n{plain}"));
+
+    assert!(
+        first_push.0.is_some() && first_push.2.is_some(),
+        "the first gaps.push line should be paired (both sides have line numbers), \
+         not shown as a deletion and insertion.\n\
+         Got: left_num={:?} right_num={:?}\nOutput:\n{plain}",
+        first_push.0,
+        first_push.2,
+    );
+}
